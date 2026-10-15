@@ -1,3 +1,117 @@
+-- ========================================
+-- DEPOSTIE
+-- ========================================
+CREATE OR REPLACE PROCEDURE sp_deposit(
+    IN p_transaction_id VARCHAR(20),
+    IN p_account_no VARCHAR(20),
+    IN p_amount NUMERIC(14,5),
+    IN p_channel VARCHAR(20),
+    IN p_employee_id VARCHAR(20) DEFAULT NULL
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_balance NUMERIC(14,5);
+BEGIN
+    IF p_amount IS NULL OR p_amount <= 0 THEN
+        RAISE EXCEPTION 'Deposit amount must be positive';
+    END IF;
+
+    IF p_channel NOT IN (
+        'Branch', 'ATM', 'Online_Banking', 'UPI',
+        'POS', 'Cheque', 'NEFT', 'RTGS', 'IMPS'
+    ) THEN
+        RAISE EXCEPTION 'Invalid transaction channel';
+    END IF;
+
+    SELECT Current_Balance
+    INTO v_balance
+    FROM ACCOUNT
+    WHERE Account_No = p_account_no
+      AND Status = 'Active'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Account does not exist or is not active';
+    END IF;
+
+    UPDATE ACCOUNT
+    SET Current_Balance = Current_Balance + p_amount
+    WHERE Account_No = p_account_no
+    RETURNING Current_Balance INTO v_balance;
+
+    INSERT INTO "TRANSACTION" (
+        Transaction_ID, Account_No, Employee_ID,
+        Transaction_Type, Amount, Balance_After,
+        Channel, Status
+    )
+    VALUES (
+        p_transaction_id, p_account_no, p_employee_id,
+        'Deposit', p_amount, v_balance,
+        p_channel, 'Completed'
+    );
+END;
+$$;
+-- ==============================================
+--         WITHDRAW
+-- ===========================================
+
+CREATE OR REPLACE PROCEDURE sp_withdraw(
+    IN p_transaction_id VARCHAR(20),
+    IN p_account_no VARCHAR(20),
+    IN p_amount NUMERIC(14,5),
+    IN p_channel VARCHAR(20),
+    IN p_employee_id VARCHAR(20) DEFAULT NULL
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_balance NUMERIC(14,5);
+BEGIN
+    IF p_amount IS NULL OR p_amount <= 0 THEN
+        RAISE EXCEPTION 'Withdrawal amount must be positive';
+    END IF;
+
+    IF p_channel NOT IN (
+        'Branch', 'ATM', 'Online_Banking', 'UPI',
+        'POS', 'Cheque', 'NEFT', 'RTGS', 'IMPS'
+    ) THEN
+        RAISE EXCEPTION 'Invalid transaction channel';
+    END IF;
+
+    SELECT Current_Balance
+    INTO v_balance
+    FROM ACCOUNT
+    WHERE Account_No = p_account_no
+      AND Status = 'Active'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Account does not exist or is not active';
+    END IF;
+
+    IF v_balance < p_amount THEN
+        RAISE EXCEPTION 'Insufficient balance';
+    END IF;
+
+    UPDATE ACCOUNT
+    SET Current_Balance = Current_Balance - p_amount
+    WHERE Account_No = p_account_no
+    RETURNING Current_Balance INTO v_balance;
+
+    INSERT INTO "TRANSACTION" (
+        Transaction_ID, Account_No, Employee_ID,
+        Transaction_Type, Amount, Balance_After,
+        Channel, Status
+    )
+    VALUES (
+        p_transaction_id, p_account_no, p_employee_id,
+        'Withdrawal', p_amount, v_balance,
+        p_channel, 'Completed'
+    );
+END;
+$$;
+
 -- ===========================================
 --				FUND TRANSFER
 --=============================================
